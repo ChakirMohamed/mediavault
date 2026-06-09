@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { DependencyStatus } from "@/lib/dependencies";
+
 export type AppView = "downloads" | "converter" | "history" | "settings";
 
 export type DownloadStatus =
@@ -61,6 +63,7 @@ type AppState = {
   downloads: DownloadItem[];
   conversions: ConversionItem[];
   settings: AppSettings;
+  dependencies?: DependencyStatus;
   setActiveView: (view: AppView) => void;
   addDownloadFromUrl: (url: string, outputFormat: string, quality: string) => void;
   updateDownloadStatus: (id: string, status: DownloadStatus) => void;
@@ -71,6 +74,7 @@ type AppState = {
   ) => void;
   updateConversionStatus: (id: string, status: ConversionStatus) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
+  setDependencies: (dependencies: DependencyStatus) => void;
 };
 
 const now = () => new Date().toISOString();
@@ -129,6 +133,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeView: "downloads",
   downloads: [],
   conversions: [],
+  dependencies: undefined,
   settings: {
     defaultOutputFolder: "",
     maxConcurrentDownloads: 3,
@@ -202,4 +207,5 @@ export const useAppStore = create<AppState>((set) => ({
         ...settings,
       },
     })),
+  setDependencies: (dependencies) => set({ dependencies }),
 }));

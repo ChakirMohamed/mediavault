@@ -124,6 +124,7 @@ function AppFrame() {
   const settings = useAppStore((state) => state.settings);
   const downloads = useAppStore((state) => state.downloads);
   const conversions = useAppStore((state) => state.conversions);
+  const dependencies = useAppStore((state) => state.dependencies);
   const { setTheme } = useTheme();
 
   useEffect(() => {
@@ -184,11 +185,11 @@ function AppFrame() {
             <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
               <div className="flex justify-between gap-2">
                 <span>yt-dlp</span>
-                <span>pending</span>
+                <span>{dependencies?.ytDlp.installed ? "ready" : "pending"}</span>
               </div>
               <div className="flex justify-between gap-2">
                 <span>FFmpeg</span>
-                <span>pending</span>
+                <span>{dependencies?.ffmpeg.installed ? "ready" : "pending"}</span>
               </div>
             </div>
           </div>
