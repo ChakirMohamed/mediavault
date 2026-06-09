@@ -1,50 +1,241 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect, useMemo } from "react";
+import { ThemeProvider, useTheme } from "next-themes";
+import {
+  Archive,
+  Download,
+  HardDriveDownload,
+  History,
+  Settings,
+  ShieldCheck,
+  Wand2,
+} from "lucide-react";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+import { ConverterPanel } from "@/components/ConverterPanel";
+import { DownloadQueue } from "@/components/DownloadQueue";
+import { ProgressCard } from "@/components/ProgressCard";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { UrlInput } from "@/components/UrlInput";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Toaster } from "@/components/ui/sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useGlobalDrop } from "@/hooks/useGlobalDrop";
+import { cn } from "@/lib/utils";
+import { useAppStore, type AppView } from "@/store/app-store";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+const navItems: Array<{
+  id: AppView;
+  label: string;
+  icon: typeof Download;
+}> = [
+  { id: "downloads", label: "Downloads", icon: Download },
+  { id: "converter", label: "Converter", icon: Wand2 },
+  { id: "history", label: "History", icon: History },
+  { id: "settings", label: "Settings", icon: Settings },
+];
+
+const titles: Record<AppView, { title: string; description: string }> = {
+  downloads: {
+    title: "Downloads",
+    description: "Capture, inspect, and process media URLs.",
+  },
+  converter: {
+    title: "Converter",
+    description: "Prepare local audio, video, and image batches.",
+  },
+  history: {
+    title: "History",
+    description: "Review completed, failed, and cancelled jobs.",
+  },
+  settings: {
+    title: "Settings",
+    description: "Control defaults, dependencies, and appearance.",
+  },
+};
+
+function HistoryView() {
+  const downloads = useAppStore((state) => state.downloads);
+  const historyItems = downloads.filter((download) =>
+    ["completed", "failed", "cancelled"].includes(download.status),
+  );
+  const completedItems = historyItems.filter((download) => download.status === "completed");
+  const failedItems = historyItems.filter((download) => download.status !== "completed");
+
+  const renderHistory = (items: typeof historyItems, emptyLabel: string) =>
+    items.length === 0 ? (
+      <div className="flex min-h-96 items-center justify-center rounded-lg border border-dashed">
+        <div className="text-center">
+          <Archive className="mx-auto size-8 text-muted-foreground" />
+          <div className="mt-3 text-sm font-medium">{emptyLabel}</div>
+          <div className="mt-1 text-xs text-muted-foreground">Finished jobs will appear here.</div>
+        </div>
+      </div>
+    ) : (
+      <div className="grid gap-3">
+        {items.map((download) => (
+          <ProgressCard
+            key={download.id}
+            title={download.title}
+            subtitle={download.url}
+            status={download.status}
+            progress={download.progress}
+            tone={download.status === "completed" ? "success" : "danger"}
+            meta={[
+              { label: "Source", value: download.source },
+              { label: "Format", value: download.outputFormat.toUpperCase() },
+              { label: "Quality", value: download.quality.toUpperCase() },
+              { label: "Created", value: new Date(download.createdAt).toLocaleTimeString() },
+            ]}
+          />
+        ))}
+      </div>
+    );
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <Tabs defaultValue="all" className="grid gap-4">
+      <TabsList className="w-fit">
+        <TabsTrigger value="all">All</TabsTrigger>
+        <TabsTrigger value="completed">Completed</TabsTrigger>
+        <TabsTrigger value="failed">Failed</TabsTrigger>
+      </TabsList>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      <TabsContent value="all" className="mt-0">
+        {renderHistory(historyItems, "No history")}
+      </TabsContent>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      <TabsContent value="completed" className="mt-0">
+        {renderHistory(completedItems, "No completed jobs")}
+      </TabsContent>
+
+      <TabsContent value="failed" className="mt-0">
+        {renderHistory(failedItems, "No failed jobs")}
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function AppFrame() {
+  useGlobalDrop();
+
+  const activeView = useAppStore((state) => state.activeView);
+  const setActiveView = useAppStore((state) => state.setActiveView);
+  const settings = useAppStore((state) => state.settings);
+  const downloads = useAppStore((state) => state.downloads);
+  const conversions = useAppStore((state) => state.conversions);
+  const { setTheme } = useTheme();
+
+  useEffect(() => {
+    setTheme(settings.theme);
+  }, [setTheme, settings.theme]);
+
+  const currentTitle = titles[activeView];
+  const activeCount = useMemo(
+    () => downloads.filter((download) => !["completed", "failed", "cancelled"].includes(download.status)).length,
+    [downloads],
+  );
+
+  return (
+    <div className="flex h-screen min-h-screen overflow-hidden bg-background text-foreground">
+      <aside className="flex w-20 shrink-0 flex-col border-r bg-sidebar md:w-64">
+        <div className="flex h-16 items-center gap-3 px-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background">
+            <HardDriveDownload className="size-5 text-cyan-400" />
+          </div>
+          <div className="hidden min-w-0 md:block">
+            <div className="truncate text-sm font-semibold">MediaVault</div>
+            <div className="truncate text-xs text-muted-foreground">Downloader studio</div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <nav className="grid gap-1 p-3">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeView === item.id;
+
+            return (
+              <Button
+                key={item.id}
+                type="button"
+                variant={isActive ? "secondary" : "ghost"}
+                className={cn(
+                  "h-10 justify-center gap-3 md:justify-start",
+                  isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+                )}
+                onClick={() => setActiveView(item.id)}
+                aria-label={item.label}
+              >
+                <Icon />
+                <span className="hidden md:inline">{item.label}</span>
+              </Button>
+            );
+          })}
+        </nav>
+
+        <div className="mt-auto grid gap-3 p-3">
+          <div className="hidden rounded-lg border bg-background/70 p-3 md:block">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <ShieldCheck className="size-3.5 text-emerald-400" />
+              Local engine
+            </div>
+            <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+              <div className="flex justify-between gap-2">
+                <span>yt-dlp</span>
+                <span>pending</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>FFmpeg</span>
+                <span>pending</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b px-4 lg:px-6">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold">{currentTitle.title}</h1>
+            <p className="truncate text-xs text-muted-foreground">{currentTitle.description}</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant="secondary" className="hidden sm:inline-flex">
+              {activeCount} active
+            </Badge>
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              {conversions.length} conversions
+            </Badge>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-auto p-4 lg:p-6">
+          {activeView === "downloads" && (
+            <div className="grid gap-4">
+              <UrlInput />
+              <DownloadQueue />
+            </div>
+          )}
+          {activeView === "converter" && <ConverterPanel />}
+          {activeView === "history" && <HistoryView />}
+          {activeView === "settings" && <SettingsPanel />}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <TooltipProvider delayDuration={250}>
+        <AppFrame />
+        <Toaster richColors closeButton />
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 
