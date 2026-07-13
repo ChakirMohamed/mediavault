@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { CheckCircle2, DownloadCloud, FolderOpen, RefreshCw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -71,6 +72,18 @@ export function SettingsPanel() {
     }
   };
 
+  const handleChooseFolder = async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false });
+
+      if (typeof selected === "string") {
+        updateSettings({ defaultOutputFolder: selected });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleInstallDependencies = async () => {
     setBusy("install");
 
@@ -100,7 +113,13 @@ export function SettingsPanel() {
                 onChange={(event) => updateSettings({ defaultOutputFolder: event.target.value })}
                 placeholder="Choose output folder"
               />
-              <Button type="button" size="icon" variant="outline" aria-label="Choose folder">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                aria-label="Choose folder"
+                onClick={handleChooseFolder}
+              >
                 <FolderOpen />
               </Button>
             </div>

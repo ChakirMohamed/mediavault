@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 
+import { processDownloadQueue } from "@/lib/download-queue";
+import { isCollectionUrl, parseUrls } from "@/lib/media-urls";
 import { useAppStore } from "@/store/app-store";
 
 export function useGlobalDrop() {
-  const addDownloadFromUrl = useAppStore((state) => state.addDownloadFromUrl);
+  const addDownloads = useAppStore((state) => state.addDownloads);
   const addConversionFiles = useAppStore((state) => state.addConversionFiles);
+  const openMediaPicker = useAppStore((state) => state.openMediaPicker);
   const settings = useAppStore((state) => state.settings);
 
   useEffect(() => {
@@ -20,8 +23,25 @@ export function useGlobalDrop() {
       const files = Array.from(event.dataTransfer?.files ?? []);
 
       if (text) {
-        addDownloadFromUrl(text, "mp4", settings.defaultVideoQuality);
-        toast.success("URL added");
+        const urls = parseUrls(text);
+
+        if (urls.length === 0) {
+          toast.error("Dropped text is not a valid URL");
+          return;
+        }
+
+        if (urls.length > 1 || isCollectionUrl(urls[0])) {
+          openMediaPicker({
+            urls,
+            outputFormat: "mp4",
+            quality: settings.defaultVideoQuality,
+          });
+          return;
+        }
+
+        addDownloads([{ url: urls[0] }], "mp4", settings.defaultVideoQuality);
+        processDownloadQueue();
+        toast.success("Download queued");
         return;
       }
 
@@ -42,5 +62,5 @@ export function useGlobalDrop() {
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("drop", onDrop);
     };
-  }, [addConversionFiles, addDownloadFromUrl, settings.defaultVideoQuality]);
+  }, [addConversionFiles, addDownloads, openMediaPicker, settings.defaultVideoQuality]);
 }

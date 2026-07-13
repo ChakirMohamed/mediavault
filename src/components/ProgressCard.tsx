@@ -27,6 +27,7 @@ type ProgressCardProps = {
   progress: number;
   meta: Array<{ label: string; value: string }>;
   tone?: "neutral" | "active" | "success" | "danger" | "warning";
+  errorMessage?: string;
   actions?: {
     onResume?: () => void;
     onPause?: () => void;
@@ -58,6 +59,7 @@ export function ProgressCard({
   progress,
   meta,
   tone = "neutral",
+  errorMessage,
   actions,
 }: ProgressCardProps) {
   const StatusIcon = statusIcon[tone];
@@ -75,6 +77,9 @@ export function ProgressCard({
               </Badge>
             </div>
             <p className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</p>
+            {errorMessage && (
+              <p className="mt-1 break-words text-xs text-red-400">{errorMessage}</p>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-1">

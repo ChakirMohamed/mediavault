@@ -1,8 +1,11 @@
 import { DownloadCloud } from "lucide-react";
+import { toast } from "sonner";
 
 import { ProgressCard } from "@/components/ProgressCard";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useAppStore, type DownloadStatus } from "@/store/app-store";
+import { processDownloadQueue, releaseDownloadSlot } from "@/lib/download-queue";
+import { cancelDownload, openDownloadLocation } from "@/lib/downloads";
+import { useAppStore, type DownloadItem, type DownloadStatus } from "@/store/app-store";
 
 const toneForStatus = (status: DownloadStatus) => {
   if (status === "downloading" || status === "analyzing") {
@@ -31,6 +34,45 @@ export function DownloadQueue() {
   const activeDownloads = downloads.filter(
     (download) => !["completed", "failed", "cancelled"].includes(download.status),
   );
+
+  // Mark the item paused/cancelled BEFORE killing the process, so the
+  // process-exit error event is recognized as intentional and ignored.
+  const handlePause = async (download: DownloadItem) => {
+    updateDownloadStatus(download.id, "paused");
+
+    try {
+      await cancelDownload(download.id);
+    } catch {
+      // process may have already exited
+    }
+
+    releaseDownloadSlot(download.id);
+  };
+
+  const handleResume = (download: DownloadItem) => {
+    updateDownloadStatus(download.id, "queued");
+    processDownloadQueue();
+  };
+
+  const handleCancel = async (download: DownloadItem) => {
+    updateDownloadStatus(download.id, "cancelled");
+
+    try {
+      await cancelDownload(download.id);
+    } catch {
+      // process may have already exited
+    }
+
+    releaseDownloadSlot(download.id);
+  };
+
+  const handleOpenFolder = async (download: DownloadItem) => {
+    try {
+      await openDownloadLocation(download);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   return (
     <section className="grid min-h-0 gap-4">
@@ -70,6 +112,7 @@ export function DownloadQueue() {
                 status={download.status}
                 tone={toneForStatus(download.status)}
                 progress={download.progress}
+                errorMessage={download.status === "failed" ? download.errorMessage : undefined}
                 meta={[
                   { label: "Format", value: download.outputFormat.toUpperCase() },
                   { label: "Quality", value: download.quality.toUpperCase() },
@@ -77,17 +120,18 @@ export function DownloadQueue() {
                   { label: "ETA", value: download.eta },
                 ]}
                 actions={{
-                  onResume:
-                    download.status === "paused"
-                      ? () => updateDownloadStatus(download.id, "queued")
-                      : undefined,
+                  onResume: download.status === "paused" ? () => handleResume(download) : undefined,
                   onPause:
                     ["queued", "analyzing", "downloading"].includes(download.status)
-                      ? () => updateDownloadStatus(download.id, "paused")
+                      ? () => handlePause(download)
                       : undefined,
                   onCancel: activeDownloads.some((item) => item.id === download.id)
-                    ? () => updateDownloadStatus(download.id, "cancelled")
+                    ? () => handleCancel(download)
                     : undefined,
+                  onOpenFolder:
+                    download.status === "completed" && (download.filePath || download.outputDir)
+                      ? () => handleOpenFolder(download)
+                      : undefined,
                 }}
               />
             ))}

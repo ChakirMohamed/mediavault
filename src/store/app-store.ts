@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import type { DependencyStatus } from "@/lib/dependencies";
 
@@ -29,12 +30,27 @@ export type DownloadItem = {
   url: string;
   outputFormat: string;
   quality: string;
-  outputPath: string;
+  /** Folder the download is saved into. */
+  outputDir: string;
+  /** Full path of the finished file, once known. */
+  filePath?: string;
   status: DownloadStatus;
   progress: number;
   speed: string;
   eta: string;
+  errorMessage?: string;
   createdAt: string;
+};
+
+export type DownloadRequest = {
+  url: string;
+  title?: string;
+};
+
+export type MediaPickerRequest = {
+  urls: string[];
+  outputFormat: string;
+  quality: string;
 };
 
 export type ConversionItem = {
@@ -64,9 +80,13 @@ type AppState = {
   conversions: ConversionItem[];
   settings: AppSettings;
   dependencies?: DependencyStatus;
+  pickerRequest: MediaPickerRequest | null;
   setActiveView: (view: AppView) => void;
-  addDownloadFromUrl: (url: string, outputFormat: string, quality: string) => void;
+  openMediaPicker: (request: MediaPickerRequest) => void;
+  closeMediaPicker: () => void;
+  addDownloads: (requests: DownloadRequest[], outputFormat: string, quality: string) => string[];
   updateDownloadStatus: (id: string, status: DownloadStatus) => void;
+  patchDownload: (id: string, patch: Partial<DownloadItem>) => void;
   addConversionFiles: (
     files: Array<{ name: string; path?: string }>,
     outputFormat?: string,
@@ -78,6 +98,16 @@ type AppState = {
 };
 
 const now = () => new Date().toISOString();
+
+const defaultSettings: AppSettings = {
+  defaultOutputFolder: "",
+  maxConcurrentDownloads: 3,
+  defaultVideoQuality: "best",
+  defaultAudioFormat: "mp3",
+  defaultAudioBitrate: "320k",
+  autoConvertAfterDownload: false,
+  theme: "dark",
+};
 
 const detectSource = (url: string) => {
   try {
@@ -129,83 +159,125 @@ const titleFromUrl = (url: string) => {
   }
 };
 
-export const useAppStore = create<AppState>((set) => ({
-  activeView: "downloads",
-  downloads: [],
-  conversions: [],
-  dependencies: undefined,
-  settings: {
-    defaultOutputFolder: "",
-    maxConcurrentDownloads: 3,
-    defaultVideoQuality: "best",
-    defaultAudioFormat: "mp3",
-    defaultAudioBitrate: "320k",
-    autoConvertAfterDownload: false,
-    theme: "dark",
-  },
-  setActiveView: (view) => set({ activeView: view }),
-  addDownloadFromUrl: (url, outputFormat, quality) =>
-    set((state) => ({
+/** Downloads that were mid-flight when the app closed have no backing process
+ *  anymore, so rehydrate them as paused (resumable). */
+const sanitizeDownloads = (downloads: DownloadItem[]) =>
+  downloads.map((download) =>
+    ["queued", "analyzing", "downloading"].includes(download.status)
+      ? { ...download, status: "paused" as const, speed: "-", eta: "-" }
+      : download,
+  );
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
       activeView: "downloads",
-      downloads: [
-        {
-          id: crypto.randomUUID(),
-          title: titleFromUrl(url),
-          source: detectSource(url),
-          url,
-          outputFormat,
-          quality,
-          outputPath: state.settings.defaultOutputFolder,
-          status: "queued",
-          progress: 0,
-          speed: "-",
-          eta: "-",
-          createdAt: now(),
-        },
-        ...state.downloads,
-      ],
-    })),
-  updateDownloadStatus: (id, status) =>
-    set((state) => ({
-      downloads: state.downloads.map((download) =>
-        download.id === id
-          ? {
-              ...download,
-              status,
-              progress: status === "cancelled" ? download.progress : download.progress,
-            }
-          : download,
-      ),
-    })),
-  addConversionFiles: (files, outputFormat = "mp4", quality = "high") =>
-    set((state) => ({
-      activeView: "converter",
-      conversions: [
-        ...files.map((file) => ({
-          id: crypto.randomUUID(),
-          fileName: file.name,
-          inputPath: file.path ?? file.name,
-          outputFormat,
-          quality,
-          status: "queued" as const,
-          progress: 0,
-          createdAt: now(),
-        })),
-        ...state.conversions,
-      ],
-    })),
-  updateConversionStatus: (id, status) =>
-    set((state) => ({
-      conversions: state.conversions.map((conversion) =>
-        conversion.id === id ? { ...conversion, status } : conversion,
-      ),
-    })),
-  updateSettings: (settings) =>
-    set((state) => ({
-      settings: {
-        ...state.settings,
-        ...settings,
+      downloads: [],
+      conversions: [],
+      dependencies: undefined,
+      settings: defaultSettings,
+      pickerRequest: null,
+      setActiveView: (view) => set({ activeView: view }),
+      openMediaPicker: (request) => set({ pickerRequest: request }),
+      closeMediaPicker: () => set({ pickerRequest: null }),
+      addDownloads: (requests, outputFormat, quality) => {
+        const ids: string[] = [];
+
+        set((state) => ({
+          activeView: "downloads",
+          downloads: [
+            ...requests.map((request) => {
+              const id = crypto.randomUUID();
+              ids.push(id);
+
+              return {
+                id,
+                title: request.title?.trim() || titleFromUrl(request.url),
+                source: detectSource(request.url),
+                url: request.url,
+                outputFormat,
+                quality,
+                outputDir: state.settings.defaultOutputFolder,
+                status: "queued" as const,
+                progress: 0,
+                speed: "-",
+                eta: "-",
+                createdAt: now(),
+              };
+            }),
+            ...state.downloads,
+          ],
+        }));
+
+        return ids;
       },
-    })),
-  setDependencies: (dependencies) => set({ dependencies }),
-}));
+      updateDownloadStatus: (id, status) =>
+        set((state) => ({
+          downloads: state.downloads.map((download) =>
+            download.id === id
+              ? {
+                  ...download,
+                  status,
+                }
+              : download,
+          ),
+        })),
+      patchDownload: (id, patch) =>
+        set((state) => ({
+          downloads: state.downloads.map((download) =>
+            download.id === id ? { ...download, ...patch } : download,
+          ),
+        })),
+      addConversionFiles: (files, outputFormat = "mp4", quality = "high") =>
+        set((state) => ({
+          activeView: "converter",
+          conversions: [
+            ...files.map((file) => ({
+              id: crypto.randomUUID(),
+              fileName: file.name,
+              inputPath: file.path ?? file.name,
+              outputFormat,
+              quality,
+              status: "queued" as const,
+              progress: 0,
+              createdAt: now(),
+            })),
+            ...state.conversions,
+          ],
+        })),
+      updateConversionStatus: (id, status) =>
+        set((state) => ({
+          conversions: state.conversions.map((conversion) =>
+            conversion.id === id ? { ...conversion, status } : conversion,
+          ),
+        })),
+      updateSettings: (settings) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            ...settings,
+          },
+        })),
+      setDependencies: (dependencies) => set({ dependencies }),
+    }),
+    {
+      name: "mediavault-store",
+      version: 1,
+      partialize: (state) => ({
+        settings: state.settings,
+        downloads: state.downloads,
+      }),
+      merge: (persisted, current) => {
+        const stored = (persisted ?? {}) as Partial<
+          Pick<AppState, "settings" | "downloads">
+        >;
+
+        return {
+          ...current,
+          settings: { ...current.settings, ...stored.settings },
+          downloads: sanitizeDownloads(stored.downloads ?? []),
+        };
+      },
+    },
+  ),
+);

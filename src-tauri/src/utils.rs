@@ -36,6 +36,29 @@ pub async fn check_dependencies(app: AppHandle) -> Result<DependencyStatus, Stri
     dependency_status(&app).map_err(|error| error.to_string())
 }
 
+/// Resolves the yt-dlp executable path, preferring PATH then the managed bin dir.
+pub fn resolve_yt_dlp_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let bin_dir = managed_bin_dir(app).map_err(|error| error.to_string())?;
+    resolve_tool("yt-dlp", &["yt-dlp.exe", "yt-dlp"], &bin_dir)
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "yt-dlp is not installed. Install dependencies from Settings first.".to_string())
+}
+
+/// Resolves the directory containing ffmpeg/ffprobe so it can be passed to yt-dlp via --ffmpeg-location.
+pub fn resolve_ffmpeg_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let bin_dir = managed_bin_dir(app).map_err(|error| error.to_string())?;
+    let ffmpeg_path = resolve_tool("FFmpeg", &["ffmpeg.exe", "ffmpeg"], &bin_dir)
+        .path
+        .map(PathBuf::from)
+        .ok_or_else(|| "FFmpeg is not installed. Install dependencies from Settings first.".to_string())?;
+
+    Ok(ffmpeg_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or(bin_dir))
+}
+
 #[tauri::command]
 pub async fn install_dependencies(app: AppHandle) -> Result<DependencyStatus, String> {
     let bin_dir = managed_bin_dir(&app).map_err(|error| error.to_string())?;
@@ -167,7 +190,7 @@ fn extract_zip_binary(
 }
 
 #[cfg(windows)]
-fn hide_child_window(command: &mut Command) {
+pub(crate) fn hide_child_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -175,4 +198,4 @@ fn hide_child_window(command: &mut Command) {
 }
 
 #[cfg(not(windows))]
-fn hide_child_window(_command: &mut Command) {}
+pub(crate) fn hide_child_window(_command: &mut Command) {}

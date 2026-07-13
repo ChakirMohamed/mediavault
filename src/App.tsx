@@ -10,8 +10,11 @@ import {
   Wand2,
 } from "lucide-react";
 
+import { toast } from "sonner";
+
 import { ConverterPanel } from "@/components/ConverterPanel";
 import { DownloadQueue } from "@/components/DownloadQueue";
+import { MediaPickerDialog } from "@/components/MediaPickerDialog";
 import { ProgressCard } from "@/components/ProgressCard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { UrlInput } from "@/components/UrlInput";
@@ -21,9 +24,12 @@ import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useDownloadEvents } from "@/hooks/useDownloadEvents";
 import { useGlobalDrop } from "@/hooks/useGlobalDrop";
+import { checkDependencies } from "@/lib/dependencies";
+import { openDownloadLocation } from "@/lib/downloads";
 import { cn } from "@/lib/utils";
-import { useAppStore, type AppView } from "@/store/app-store";
+import { useAppStore, type AppView, type DownloadItem } from "@/store/app-store";
 
 const navItems: Array<{
   id: AppView;
@@ -63,6 +69,14 @@ function HistoryView() {
   const completedItems = historyItems.filter((download) => download.status === "completed");
   const failedItems = historyItems.filter((download) => download.status !== "completed");
 
+  const handleOpenFolder = async (download: DownloadItem) => {
+    try {
+      await openDownloadLocation(download);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const renderHistory = (items: typeof historyItems, emptyLabel: string) =>
     items.length === 0 ? (
       <div className="flex min-h-96 items-center justify-center rounded-lg border border-dashed">
@@ -88,6 +102,12 @@ function HistoryView() {
               { label: "Quality", value: download.quality.toUpperCase() },
               { label: "Created", value: new Date(download.createdAt).toLocaleTimeString() },
             ]}
+            actions={{
+              onOpenFolder:
+                download.status === "completed" && (download.filePath || download.outputDir)
+                  ? () => handleOpenFolder(download)
+                  : undefined,
+            }}
           />
         ))}
       </div>
@@ -118,6 +138,7 @@ function HistoryView() {
 
 function AppFrame() {
   useGlobalDrop();
+  useDownloadEvents();
 
   const activeView = useAppStore((state) => state.activeView);
   const setActiveView = useAppStore((state) => state.setActiveView);
@@ -125,11 +146,30 @@ function AppFrame() {
   const downloads = useAppStore((state) => state.downloads);
   const conversions = useAppStore((state) => state.conversions);
   const dependencies = useAppStore((state) => state.dependencies);
+  const setDependencies = useAppStore((state) => state.setDependencies);
   const { setTheme } = useTheme();
 
   useEffect(() => {
     setTheme(settings.theme);
   }, [setTheme, settings.theme]);
+
+  useEffect(() => {
+    checkDependencies()
+      .then((status) => {
+        setDependencies(status);
+
+        if (!status.ytDlp.installed || !status.ffmpeg.installed) {
+          toast.warning("yt-dlp or FFmpeg is missing", {
+            description: "Open Settings and use Install/update to download them.",
+            action: {
+              label: "Settings",
+              onClick: () => useAppStore.getState().setActiveView("settings"),
+            },
+          });
+        }
+      })
+      .catch((error) => console.error("Dependency check failed:", error));
+  }, [setDependencies]);
 
   const currentTitle = titles[activeView];
   const activeCount = useMemo(
@@ -225,6 +265,8 @@ function AppFrame() {
           {activeView === "settings" && <SettingsPanel />}
         </div>
       </main>
+
+      <MediaPickerDialog />
     </div>
   );
 }

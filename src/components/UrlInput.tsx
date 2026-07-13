@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { ClipboardEvent, FormEvent, useState } from "react";
 import { Download, Link2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { processDownloadQueue } from "@/lib/download-queue";
+import { isCollectionUrl, parseUrls } from "@/lib/media-urls";
 import { useAppStore } from "@/store/app-store";
 
 const outputFormats = ["mp4", "mp3", "aac", "webm", "mkv", "flac", "wav", "jpeg", "png"];
@@ -21,21 +23,42 @@ export function UrlInput() {
   const [url, setUrl] = useState("");
   const [outputFormat, setOutputFormat] = useState("mp4");
   const [quality, setQuality] = useState("best");
-  const addDownloadFromUrl = useAppStore((state) => state.addDownloadFromUrl);
+  const addDownloads = useAppStore((state) => state.addDownloads);
+  const openMediaPicker = useAppStore((state) => state.openMediaPicker);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    try {
-      new URL(url);
-    } catch {
+  const submitUrls = (urls: string[]) => {
+    if (urls.length === 0) {
       toast.error("Enter a valid URL");
       return;
     }
 
-    addDownloadFromUrl(url, outputFormat, quality);
-    toast.success("URL added");
     setUrl("");
+
+    // Playlists, channels, and multi-URL pastes go through the picker so the
+    // user can review which videos get downloaded.
+    if (urls.length > 1 || isCollectionUrl(urls[0])) {
+      openMediaPicker({ urls, outputFormat, quality });
+      return;
+    }
+
+    addDownloads([{ url: urls[0] }], outputFormat, quality);
+    processDownloadQueue();
+    toast.success("Download queued");
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    submitUrls(parseUrls(url));
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const urls = parseUrls(event.clipboardData.getData("text"));
+
+    // Single-line inputs mangle multi-line pastes, so handle them directly.
+    if (urls.length > 1) {
+      event.preventDefault();
+      submitUrls(urls);
+    }
   };
 
   return (
@@ -47,8 +70,9 @@ export function UrlInput() {
             <Input
               value={url}
               onChange={(event) => setUrl(event.target.value)}
+              onPaste={handlePaste}
               className="h-10 pl-9"
-              placeholder="Paste media URL"
+              placeholder="Paste video, playlist, or channel URLs"
             />
           </div>
 
@@ -80,7 +104,7 @@ export function UrlInput() {
 
           <Button type="submit" className="h-10">
             <Download />
-            Analyze
+            Download
           </Button>
         </form>
       </CardContent>
