@@ -1,11 +1,15 @@
 import { DownloadCloud } from "lucide-react";
-import { toast } from "sonner";
 
 import { ProgressCard } from "@/components/ProgressCard";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { processDownloadQueue, releaseDownloadSlot } from "@/lib/download-queue";
-import { cancelDownload, openDownloadLocation } from "@/lib/downloads";
-import { useAppStore, type DownloadItem, type DownloadStatus } from "@/store/app-store";
+import { cancelDownload } from "@/lib/downloads";
+import {
+  TERMINAL_STATUSES,
+  useAppStore,
+  type DownloadItem,
+  type DownloadStatus,
+} from "@/store/app-store";
 
 const toneForStatus = (status: DownloadStatus) => {
   if (status === "downloading" || status === "analyzing") {
@@ -31,8 +35,9 @@ export function DownloadQueue() {
   const downloads = useAppStore((state) => state.downloads);
   const maxConcurrentDownloads = useAppStore((state) => state.settings.maxConcurrentDownloads);
   const updateDownloadStatus = useAppStore((state) => state.updateDownloadStatus);
+  // Finished jobs live in the History view; the queue only shows work in flight.
   const activeDownloads = downloads.filter(
-    (download) => !["completed", "failed", "cancelled"].includes(download.status),
+    (download) => !TERMINAL_STATUSES.includes(download.status),
   );
 
   // Mark the item paused/cancelled BEFORE killing the process, so the
@@ -66,14 +71,6 @@ export function DownloadQueue() {
     releaseDownloadSlot(download.id);
   };
 
-  const handleOpenFolder = async (download: DownloadItem) => {
-    try {
-      await openDownloadLocation(download);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  };
-
   return (
     <section className="grid min-h-0 gap-4">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -93,18 +90,20 @@ export function DownloadQueue() {
         </div>
       </div>
 
-      {downloads.length === 0 ? (
+      {activeDownloads.length === 0 ? (
         <div className="flex min-h-72 items-center justify-center rounded-lg border border-dashed">
           <div className="text-center">
             <DownloadCloud className="mx-auto size-8 text-muted-foreground" />
-            <div className="mt-3 text-sm font-medium">No downloads</div>
-            <div className="mt-1 text-xs text-muted-foreground">Paste or drop a URL to start.</div>
+            <div className="mt-3 text-sm font-medium">No active downloads</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Paste or drop a URL to start. Finished jobs are in History.
+            </div>
           </div>
         </div>
       ) : (
         <ScrollArea className="min-h-0 pr-3">
           <div className="grid gap-3">
-            {downloads.map((download) => (
+            {activeDownloads.map((download) => (
               <ProgressCard
                 key={download.id}
                 title={download.title}
@@ -112,7 +111,6 @@ export function DownloadQueue() {
                 status={download.status}
                 tone={toneForStatus(download.status)}
                 progress={download.progress}
-                errorMessage={download.status === "failed" ? download.errorMessage : undefined}
                 meta={[
                   { label: "Format", value: download.outputFormat.toUpperCase() },
                   { label: "Quality", value: download.quality.toUpperCase() },
@@ -125,13 +123,7 @@ export function DownloadQueue() {
                     ["queued", "analyzing", "downloading"].includes(download.status)
                       ? () => handlePause(download)
                       : undefined,
-                  onCancel: activeDownloads.some((item) => item.id === download.id)
-                    ? () => handleCancel(download)
-                    : undefined,
-                  onOpenFolder:
-                    download.status === "completed" && (download.filePath || download.outputDir)
-                      ? () => handleOpenFolder(download)
-                      : undefined,
+                  onCancel: () => handleCancel(download),
                 }}
               />
             ))}

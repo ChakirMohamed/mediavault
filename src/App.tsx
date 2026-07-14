@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { ThemeProvider, useTheme } from "next-themes";
 import {
-  Archive,
   Download,
   HardDriveDownload,
   History,
@@ -14,22 +13,20 @@ import { toast } from "sonner";
 
 import { ConverterPanel } from "@/components/ConverterPanel";
 import { DownloadQueue } from "@/components/DownloadQueue";
+import { HistoryPanel } from "@/components/HistoryPanel";
 import { MediaPickerDialog } from "@/components/MediaPickerDialog";
-import { ProgressCard } from "@/components/ProgressCard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { UrlInput } from "@/components/UrlInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDownloadEvents } from "@/hooks/useDownloadEvents";
 import { useGlobalDrop } from "@/hooks/useGlobalDrop";
 import { checkDependencies } from "@/lib/dependencies";
-import { openDownloadLocation } from "@/lib/downloads";
 import { cn } from "@/lib/utils";
-import { useAppStore, type AppView, type DownloadItem } from "@/store/app-store";
+import { useAppStore, type AppView } from "@/store/app-store";
 
 const navItems: Array<{
   id: AppView;
@@ -60,81 +57,6 @@ const titles: Record<AppView, { title: string; description: string }> = {
     description: "Control defaults, dependencies, and appearance.",
   },
 };
-
-function HistoryView() {
-  const downloads = useAppStore((state) => state.downloads);
-  const historyItems = downloads.filter((download) =>
-    ["completed", "failed", "cancelled"].includes(download.status),
-  );
-  const completedItems = historyItems.filter((download) => download.status === "completed");
-  const failedItems = historyItems.filter((download) => download.status !== "completed");
-
-  const handleOpenFolder = async (download: DownloadItem) => {
-    try {
-      await openDownloadLocation(download);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const renderHistory = (items: typeof historyItems, emptyLabel: string) =>
-    items.length === 0 ? (
-      <div className="flex min-h-96 items-center justify-center rounded-lg border border-dashed">
-        <div className="text-center">
-          <Archive className="mx-auto size-8 text-muted-foreground" />
-          <div className="mt-3 text-sm font-medium">{emptyLabel}</div>
-          <div className="mt-1 text-xs text-muted-foreground">Finished jobs will appear here.</div>
-        </div>
-      </div>
-    ) : (
-      <div className="grid gap-3">
-        {items.map((download) => (
-          <ProgressCard
-            key={download.id}
-            title={download.title}
-            subtitle={download.url}
-            status={download.status}
-            progress={download.progress}
-            tone={download.status === "completed" ? "success" : "danger"}
-            meta={[
-              { label: "Source", value: download.source },
-              { label: "Format", value: download.outputFormat.toUpperCase() },
-              { label: "Quality", value: download.quality.toUpperCase() },
-              { label: "Created", value: new Date(download.createdAt).toLocaleTimeString() },
-            ]}
-            actions={{
-              onOpenFolder:
-                download.status === "completed" && (download.filePath || download.outputDir)
-                  ? () => handleOpenFolder(download)
-                  : undefined,
-            }}
-          />
-        ))}
-      </div>
-    );
-
-  return (
-    <Tabs defaultValue="all" className="grid gap-4">
-      <TabsList className="w-fit">
-        <TabsTrigger value="all">All</TabsTrigger>
-        <TabsTrigger value="completed">Completed</TabsTrigger>
-        <TabsTrigger value="failed">Failed</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="all" className="mt-0">
-        {renderHistory(historyItems, "No history")}
-      </TabsContent>
-
-      <TabsContent value="completed" className="mt-0">
-        {renderHistory(completedItems, "No completed jobs")}
-      </TabsContent>
-
-      <TabsContent value="failed" className="mt-0">
-        {renderHistory(failedItems, "No failed jobs")}
-      </TabsContent>
-    </Tabs>
-  );
-}
 
 function AppFrame() {
   useGlobalDrop();
@@ -261,7 +183,7 @@ function AppFrame() {
             </div>
           )}
           {activeView === "converter" && <ConverterPanel />}
-          {activeView === "history" && <HistoryView />}
+          {activeView === "history" && <HistoryPanel />}
           {activeView === "settings" && <SettingsPanel />}
         </div>
       </main>

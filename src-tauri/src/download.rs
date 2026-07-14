@@ -72,7 +72,10 @@ pub async fn start_download(
     };
     fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
 
-    let output_template = output_dir.join("%(title)s.%(ext)s");
+    // Include the video id: distinct videos can share a title, and a
+    // title-only template makes yt-dlp treat the second one as already
+    // downloaded (reported complete without downloading anything).
+    let output_template = output_dir.join("%(title)s [%(id)s].%(ext)s");
     let args = build_args(&url, &output_format, &quality, &output_template, &ffmpeg_dir);
 
     // yt-dlp only emits live [download] progress text when stdout and stderr

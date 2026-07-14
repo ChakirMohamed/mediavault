@@ -87,6 +87,8 @@ type AppState = {
   addDownloads: (requests: DownloadRequest[], outputFormat: string, quality: string) => string[];
   updateDownloadStatus: (id: string, status: DownloadStatus) => void;
   patchDownload: (id: string, patch: Partial<DownloadItem>) => void;
+  removeDownload: (id: string) => void;
+  clearDownloadHistory: () => void;
   addConversionFiles: (
     files: Array<{ name: string; path?: string }>,
     outputFormat?: string,
@@ -98,6 +100,8 @@ type AppState = {
 };
 
 const now = () => new Date().toISOString();
+
+export const TERMINAL_STATUSES: DownloadStatus[] = ["completed", "failed", "cancelled"];
 
 const defaultSettings: AppSettings = {
   defaultOutputFolder: "",
@@ -226,6 +230,16 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           downloads: state.downloads.map((download) =>
             download.id === id ? { ...download, ...patch } : download,
+          ),
+        })),
+      removeDownload: (id) =>
+        set((state) => ({
+          downloads: state.downloads.filter((download) => download.id !== id),
+        })),
+      clearDownloadHistory: () =>
+        set((state) => ({
+          downloads: state.downloads.filter(
+            (download) => !TERMINAL_STATUSES.includes(download.status),
           ),
         })),
       addConversionFiles: (files, outputFormat = "mp4", quality = "high") =>
